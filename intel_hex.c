@@ -7,7 +7,10 @@
 
 #include "intel_hex.h"
 
-/* For the simple state machine used in 'slurp_next_intel_hex_record'. */
+
+
+/* States for the simple state machine used in 'slurp_next_intel_hex_record'.
+ * See the source code for this function for documentation on each. */
 enum slurp_state {
 	SLURP_INIT,
 	SLURP_READ_COLON_OR_LINE_BREAK,
@@ -29,11 +32,16 @@ enum slurp_state {
 	SLURP_VERIFY_CHECKSUM
 };
 
-/* Local utility functions. */
+
+
+/* Local utility functions. (See below for documentation.) */
 static enum intel_hex_slurp_error slurp8bits(char (*)(void), uint8_t *, uint16_t *);
 static enum intel_hex_slurp_error slurp16bits(char (*)(void), uint16_t *, uint16_t *);
 static enum intel_hex_slurp_error slurp_bytes(int, char (*)(void), uint8_t (*)[], uint16_t *);
 
+
+
+/* (See header for documentation.) */
 enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void), struct intel_hex_record *r) {
 	enum slurp_state state = SLURP_INIT;
 	enum intel_hex_slurp_error err = SLURP_ERROR_NONE;
@@ -41,12 +49,25 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 	uint8_t checksum_read;
 	char colon;
 
+	/* State machine has two tracking variables:
+	 *
+	 *   * state - next state to proceed to assuming no error condition
+	 *   * err - error condition triggered by previous state
+	 *
+	 * An error condition will stop the state machine and return the error.
+	 * States should be written to trigger one type of error each. */
 	while (err == SLURP_ERROR_NONE) {
 		switch (state) {
+
+			/* Entry into state machine. (May be useful to other
+			 * implementations. */
 			case SLURP_INIT:
 				state = SLURP_READ_COLON_OR_LINE_BREAK;
 				break;
 
+			/* Reads multiple line break characters sequentially followed by a
+			 * colon character. This frames the ASCII record ahead of the
+			 * remainder of the parsing process. */
 			case SLURP_READ_COLON_OR_LINE_BREAK:
 				colon = (*slurp_char)();
 				if (':' == colon) {
@@ -58,16 +79,22 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Reads two ASCII character byte count. This is validated after
+			 * reading the record type. */
 			case SLURP_READ_BYTE_COUNT:
 				err = slurp8bits(slurp_char, &(r->byte_count), &checksum);
 				state = SLURP_READ_ADDRESS;
 				break;
 
+			/* Reads four ASCII character address. This is validated after
+			 * reading the record type. */
 			case SLURP_READ_ADDRESS:
 				err = slurp16bits(slurp_char, &(r->address), &checksum);
 				state = SLURP_READ_RECORD_TYPE;
 				break;
 
+			/* Reads two ASCII character record type and branch to proper
+			 * validation depending on the record type's requirements. */
 			case SLURP_READ_RECORD_TYPE:
 				err = slurp8bits(slurp_char, &(r->record_type), &checksum);
 				switch (r->record_type) {
@@ -77,10 +104,11 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 					case SSA_RECORD:  state = SLURP_VERIFY_SSA_ADDRESS_ZERO; break;
 					case ELA_RECORD:  state = SLURP_VERIFY_ELA_ADDRESS_ZERO; break;
 					case SLA_RECORD:  state = SLURP_VERIFY_SLA_ADDRESS_ZERO; break;
-
 				}
 				break;
 
+			/* Only reached for ESA record type; throws error if address field
+			 * is nonzero. */
 			case SLURP_VERIFY_ESA_ADDRESS_ZERO:
 				if (0 == r->address) {
 					state = SLURP_VERIFY_ESA_BYTE_COUNT_TWO;
@@ -89,6 +117,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for ESA record type; throws error if byte count
+			 * field is not two. */
 			case SLURP_VERIFY_ESA_BYTE_COUNT_TWO:
 				if (2 == r->byte_count) {
 					state = SLURP_READ_ESA_DATA;
@@ -97,11 +127,16 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for ESA record type; a specific state to reach data
+			 * for ESA is required to simplify structure of the state machine
+			 * at the cost of some code duplication. */
 			case SLURP_READ_ESA_DATA:
 				err = slurp_bytes(2, slurp_char, &(r->data), &checksum);
 				state = SLURP_VERIFY_ESA_DATA_FORMAT_IS_PROPER_ADDRESS;
 				break;
 
+			/* Only reached for ESA record type; throws error if data field has
+			 * a nonzero digit as the last digit. */
 			case SLURP_VERIFY_ESA_DATA_FORMAT_IS_PROPER_ADDRESS:
 				if (0 == (r->data[1] & 0x0F)) {
 					state = SLURP_READ_CHECKSUM;
@@ -110,6 +145,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for SSA record type; throws error if address field
+			 * is nonzero. */
 			case SLURP_VERIFY_SSA_ADDRESS_ZERO:
 				if (0 == r->address) {
 					state = SLURP_VERIFY_SSA_BYTE_COUNT_FOUR;
@@ -118,6 +155,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for SSA record type; throws error if byte count
+			 * field is not four. */
 			case SLURP_VERIFY_SSA_BYTE_COUNT_FOUR:
 				if (4 == r->byte_count) {
 					state = SLURP_READ_DATA;
@@ -126,6 +165,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for ELA record type; throws error if address field
+			 * is nonzero. */
 			case SLURP_VERIFY_ELA_ADDRESS_ZERO:
 				if (0 == r->address) {
 					state = SLURP_VERIFY_ELA_BYTE_COUNT_TWO;
@@ -134,6 +175,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for ELA record type; throws error if byte count
+			 * field is not two. */
 			case SLURP_VERIFY_ELA_BYTE_COUNT_TWO:
 				if (2 == r->byte_count) {
 					state = SLURP_READ_DATA;
@@ -142,6 +185,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for SLA record type; throws error if address field
+			 * is nonzero. */
 			case SLURP_VERIFY_SLA_ADDRESS_ZERO:
 				if (0 == r->address) {
 					state = SLURP_VERIFY_SLA_BYTE_COUNT_FOUR;
@@ -150,6 +195,8 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Only reached for SLA record type; throws error if byte count
+			 * field is not four. */
 			case SLURP_VERIFY_SLA_BYTE_COUNT_FOUR:
 				if (4 == r->byte_count) {
 					state = SLURP_READ_DATA;
@@ -158,16 +205,22 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 				}
 				break;
 
+			/* Reads pairs of ASCII characters according to the data length
+			 * field. */
 			case SLURP_READ_DATA:
 				err = slurp_bytes(r->byte_count, slurp_char, &(r->data), &checksum);
 				state = SLURP_READ_CHECKSUM;
 				break;
 
+			/* Reads two ASCII character checksum field and adds it in to the
+			 * rest of the checksum. */
 			case SLURP_READ_CHECKSUM:
 				err = slurp8bits(slurp_char, &checksum_read, &checksum);
 				state = SLURP_VERIFY_CHECKSUM;
 				break;
 
+			/* Verifies that the checksum including the final checksum byte is
+			 * zero (this is the checksum condition for a valid record.) */
 			case SLURP_VERIFY_CHECKSUM:
 				checksum &= 0xFF;
 				if (0 == checksum) {
@@ -179,6 +232,7 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 		}
 	}
 
+	/* Return proper value in case of no error. */
 	if (SLURP_ERROR_DONE == err) {
 		err = SLURP_ERROR_NONE;
 	}
@@ -186,12 +240,15 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 	return err;
 }
 
+
+
+/* TODO */
 static enum intel_hex_slurp_error slurp8bits(char (*slurp_char)(void), uint8_t *dest, uint16_t *checksum) {
 	char temp;
 	int i;
 
+	/* TODO */
 	*((uint8_t *) dest) = 0;
-
 	for (i = 4; i >= 0; i -= 4) {
 		switch ((*slurp_char)()) {
 			case '0': temp = 0x0; break;
@@ -221,11 +278,16 @@ static enum intel_hex_slurp_error slurp8bits(char (*slurp_char)(void), uint8_t *
 
 		*((uint8_t *) dest) |= temp << i;
 	}
+
+	/* Don't forget to update the checksum! (This is the easiest place to do so.) */
 	*checksum += *dest;
 
 	return SLURP_ERROR_NONE;
 }
 
+
+
+/* Slurp two 8-bit values and combine them. */
 static enum intel_hex_slurp_error slurp16bits(char (*slurp_char)(void), uint16_t *dest, uint16_t *checksum) {
 	uint8_t b1, b2;
 	enum intel_hex_slurp_error err;
@@ -243,6 +305,9 @@ static enum intel_hex_slurp_error slurp16bits(char (*slurp_char)(void), uint16_t
 	return SLURP_ERROR_NONE;
 }
 
+
+
+/* TODO */
 static enum intel_hex_slurp_error slurp_bytes(int nbytes, char (*slurp_char)(void), uint8_t (*dest)[], uint16_t *checksum) {
 	enum intel_hex_slurp_error err = SLURP_ERROR_NONE;
 	int i;

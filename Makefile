@@ -7,5 +7,11 @@
 example: example.c intel_hex.c
 	${CC} ${CFLAGS} $^ -o $@
 
+.PHONY: test clean
+
 test: example example.hex
 	cat example.hex | ./example
+
+clean:
+	rm -f example
+

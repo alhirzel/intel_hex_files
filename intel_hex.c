@@ -10,7 +10,7 @@
 /* For the simple state machine used in 'slurp_next_intel_hex_record'. */
 enum slurp_state {
 	SLURP_INIT,
-	SLURP_READ_COLON_OR_LINEBREAK,
+	SLURP_READ_COLON_OR_LINE_BREAK,
 	SLURP_READ_BYTE_COUNT,
 	SLURP_READ_ADDRESS,
 	SLURP_READ_RECORD_TYPE,
@@ -44,15 +44,15 @@ enum intel_hex_slurp_error slurp_next_intel_hex_record(char (*slurp_char)(void),
 	while (err == SLURP_ERROR_NONE) {
 		switch (state) {
 			case SLURP_INIT:
-				state = SLURP_READ_COLON_OR_LINEBREAK;
+				state = SLURP_READ_COLON_OR_LINE_BREAK;
 				break;
 
-			case SLURP_READ_COLON_OR_LINEBREAK:
+			case SLURP_READ_COLON_OR_LINE_BREAK:
 				colon = (*slurp_char)();
 				if (':' == colon) {
 					state = SLURP_READ_BYTE_COUNT;
 				} else if (('\r' == colon) || ('\n' == colon)) {
-					state = SLURP_READ_COLON_OR_LINEBREAK;
+					state = SLURP_READ_COLON_OR_LINE_BREAK;
 				} else {
 					err = SLURP_ERROR_PARSING;
 				}
